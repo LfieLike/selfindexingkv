@@ -1,0 +1,218 @@
+// #include <torch/extension.h>
+#include <math_constants.h>
+#include <cmath>
+#include <torch/extension.h>
+#include <cuda_runtime.h>
+#include <c10/cuda/CUDAStream.h>
+#define WARP_SIZE 16
+#define WARPS_PER_BLOCK 256
+#define EMB_DIM 128
+#define NUM_PER_THREAD 8
+#define THREAD_NUM 256
+// warp内规约最大值
+__inline__ __device__ float warpReduceMax(float val) {
+    for (int offset = 8; offset > 0; offset /= 2) {
+        val = max(val, __shfl_down_sync(0xFFFFFFFF, val, offset,WARP_SIZE));
+    }
+    return val;
+}
+
+// warp内规约最小值
+__inline__ __device__ float warpReduceMin(float val) {
+    for (int offset = 8; offset > 0; offset /= 2) {
+        val = min(val, __shfl_down_sync(0xFFFFFFFF, val, offset,WARP_SIZE));
+    }
+    return val;
+}
+template <typename T>
+__device__ float convert_to_float(T value) {
+    // Return 0 by default, indicating misuse if not specialized correctly.
+    return 0.0f;
+}
+
+template <>
+__device__ float convert_to_float<c10::Half>(c10::Half value) {
+    return __half2float(value);
+}
+
+template <>
+__device__ float convert_to_float<float>(float value) {
+    return value;
+}
+
+template <>
+__device__ float convert_to_float<at::BFloat16>(at::BFloat16 value) {
+    return static_cast<float>(value);
+}
+
+template <typename T>
+__device__ T convert_from_float(float value) {
+    // Return 0 by default, indicating misuse if not specialized correctly.
+    return static_cast<T>(0);
+}
+template <>
+__device__ uint8_t convert_from_float<uint8_t>(float value) {
+    return static_cast<uint8_t>(value);
+}
+template <>
+__device__ c10::Half convert_from_float<c10::Half>(float value) {
+    return __float2half(value);
+}
+
+template <>
+__device__ float convert_from_float<float>(float value) {
+    return value;
+}
+
+template <>
+__device__ at::BFloat16 convert_from_float<at::BFloat16>(float value) {
+    return static_cast<at::BFloat16>(value);
+}
+
+
+
+template<typename T>
+__global__ void quantize_with_outliers_kernel(
+    T*  key_states,
+    T*  value_states,
+    // 需要压缩的keystates
+    int32_t* __restrict__ key_value_quant,
+    uint8_t* __restrict__ key_1bit_quant,
+    T* quant_param,
+    int64_t* index,
+    int batch_size, int head_size, int len, int index_len
+    ) {
+    size_t batch_id = blockIdx.x;
+    size_t head_id = blockIdx.y;
+    size_t pro_id = blockIdx.z;
+    size_t th_id = threadIdx.x;
+    //首先获取当前线程读取的index，一个线程读一个index
+    int index_offset = (batch_id * head_size * index_len ) 
+                   + (head_id * index_len)
+                   + pro_id * THREAD_NUM 
+                   + th_id;
+    // 一个线程解压128个元素
+    int vec_id = index[index_offset];
+    int base_index_key = (batch_id * head_size * len * EMB_DIM) //batch 维度
+                   + (head_id * len * EMB_DIM) // head 维度
+                   + (vec_id * EMB_DIM); 
+    
+    // 判断边界
+    if(pro_id * THREAD_NUM + th_id >=index_len){
+        return;
+    }
+
+    // 采取uint8作为量化格式，所以量化指针除8
+    // #pragma unroll
+    // if(batch_id==0){
+    //     printf("quant_param_offset:%d %d\n",index_offset,vec_id);
+    // }
+    int write_offset = ((batch_id * head_size * index_len) //batch 维度
+                   + (head_id * index_len ) 
+                   + pro_id * THREAD_NUM 
+                   + th_id) * EMB_DIM ;
+    // if(head_id != 0){
+    //     printf("vec_id %d base_index_key %d,write_offset %d\n",vec_id,base_index_key,write_offset);
+    // }
+    #pragma unroll
+    for(int offset = 0;offset <128;offset+=8){
+        // 每个线程处理NUM_PER_THREAD个元素，添加额外的偏移量
+        int quant_offset = (base_index_key+offset);
+        int32_t local_key_value_2bit = key_value_quant[quant_offset/8];
+        uint8_t local_key_1bit = key_1bit_quant[quant_offset/8];
+        int quant_param_offset = (quant_offset)/32;
+        float local_scale_key= __half2float(quant_param[quant_param_offset*4]);
+        float local_zp_key = __half2float(quant_param[quant_param_offset*4+1]);
+        float local_scale_value= __half2float(quant_param[quant_param_offset*4+2]);
+        float local_zp_value = __half2float(quant_param[quant_param_offset*4+3]);
+        half value_half_data[8];
+        half key_half_data[8];
+        #pragma unroll
+        for(int i=0;i<8;i++){
+            float quant_res = static_cast<float>(((local_key_value_2bit)>>(i*2))&(0b11));
+            quant_res = ((local_key_1bit>>i)&1) ? (quant_res*local_scale_key+local_zp_key) : - (quant_res*local_scale_key+local_zp_key);
+            key_half_data[i] = __float2half(quant_res);
+            float value_quant_res = static_cast<float>(((local_key_value_2bit)>>((i+8)*2))&(0b11));
+            value_quant_res = (value_quant_res*local_scale_value+local_zp_value);
+            value_half_data[i] = __float2half(value_quant_res);
+        }
+        reinterpret_cast<int4*>(value_states+write_offset+ offset)[0] = reinterpret_cast<int4*>(value_half_data)[0];
+        reinterpret_cast<int4*>(key_states+write_offset+ offset)[0] = reinterpret_cast<int4*>(key_half_data)[0];
+    }
+    return;
+}
+
+
+torch::TensorOptions getOptionsForType(const std::type_info& typeInfo) {
+    if (typeInfo == typeid(c10::Half)) {
+        return torch::TensorOptions().device(torch::kCUDA, 0).dtype(torch::kHalf);
+    } else if (typeInfo == typeid(float)) {
+        return torch::TensorOptions().device(torch::kCUDA, 0).dtype(torch::kFloat);
+    } else if (typeInfo == typeid(at::BFloat16)) {
+        return torch::TensorOptions().device(torch::kCUDA, 0).dtype(torch::kBFloat16);
+    } else {
+        // Default case for unexpected types
+        throw std::runtime_error("Unsupported type for tensor options.");
+    }
+}
+
+template <typename T>
+std::tuple<torch::Tensor, torch::Tensor> MyQuantCudaTemplate(    
+    torch::Tensor key_states,
+    torch::Tensor value_states,
+    torch::Tensor key_value_quant,
+    torch::Tensor key_1bit_quant,
+    torch::Tensor quant_param,
+    torch::Tensor index
+    ) {
+    auto device = key_states.device();
+    auto options = torch::TensorOptions().device(torch::kCUDA, 0).dtype(torch::kUInt8);
+    auto options_outlier_norm = getOptionsForType(typeid(T));
+    auto options_int = torch::TensorOptions().device(torch::kCUDA, 0).dtype(torch::kUInt32);
+    int batch = key_value_quant.size(0);
+    int head = key_value_quant.size(1);
+    int len = key_value_quant.size(2);
+    int index_len = index.size(-1);
+    // token的emb_dim一般为128
+
+    int dim_1bit = key_1bit_quant.size(3);
+    int dim_2bit = key_1bit_quant.size(3);
+    // 获取 value_states 的设备信息
+    // auto key_1bit_quant = torch::zeros({batch, head, len, dim_1bit}, options.device(device)).contiguous();
+    // auto key_value_quant = torch::zeros({batch, head, len, dim_2bit}, options_int.device(device)).contiguous();
+    // warp_size 表示一个warp中的线程数，一般为32  WARPS_PER_BLOCK 表示一个block中warp的数量， 一个block最大的线程数是1024，因此WARPS_PER_BLOCK的最大值为32
+    // 每个线程处理NUM_PER_THREAD个元素
+    int numProjBlocks = (len*EMB_DIM+(NUM_PER_THREAD*THREAD_NUM)-1) / (NUM_PER_THREAD*THREAD_NUM);
+    dim3 numBlocks(batch , head, numProjBlocks);
+    dim3 threadsPerBlockDim(THREAD_NUM);
+
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream(device.index());
+    quantize_with_outliers_kernel<<<numBlocks, threadsPerBlockDim, 0,stream>>>(
+    key_states.data_ptr<T>(),
+    value_states.data_ptr<T>(),
+    key_value_quant.data_ptr<int32_t>(),
+    key_1bit_quant.data_ptr<uint8_t>(),
+    quant_param.data_ptr<T>(),
+    index.data_ptr<int64_t>(),
+    batch,head,len,index_len);
+                                                         // Remove any persistent lines in L2
+
+    return std::make_tuple(key_value_quant,key_1bit_quant);
+}
+
+    // torch::Tensor key_states,
+    // torch::Tensor value_states,
+    // torch::Tensor zp_key,
+    // torch::Tensor scale_key,
+    // torch::Tensor zp_value,
+    // torch::Tensor scale_value
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+    m.def("My_dequant_half_half", &MyQuantCudaTemplate<c10::Half>, "Quantize using Half precision",
+    py::arg("key_states"),
+    py::arg("value_states"),
+    py::arg("key_value_quant"),
+    py::arg("key_1bit_quant"),
+    py::arg("quant_param"),
+    py::arg("index"));
+
+}

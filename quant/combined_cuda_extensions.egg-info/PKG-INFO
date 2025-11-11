@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: combined_cuda_extensions
+Version: 0.0.0
+Requires-Dist: torch
+Dynamic: requires-dist
