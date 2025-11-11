@@ -47,7 +47,7 @@ python setup.py install
 
 ### Reproduce Experiments
 
-After compiling all kernels, you can run the following command to reproduce our **LongBench** experimental results. Note that the quantization pipeline is implemented in a mock mode to simulate the behavior without actual bit-level encoding.
+After compiling all kernels, you can run the following command to reproduce our **LongBench** experimental results. 
 
 16+1bits:
 ```
