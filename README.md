@@ -49,23 +49,21 @@ python setup.py install
 
 After compiling all kernels, you can run the following command to reproduce our **LongBench** experimental results. Note that the quantization pipeline is implemented in a mock mode to simulate the behavior without actual bit-level encoding.
 
+16+1bits:
 ```
 bash scripts/long_test_trulycompress_mock.sh 0 \
 NousResearch/Meta-Llama-3.1-8B-Instruct test
 ```
-
----
-
-### End-to-End Inference
-
-We have also implemented a complete end-to-end inference pipeline. You can verify its accuracy with the following command. In this version, real quantization is fully implemented and empirically verified to yield results consistent with the mock quantization setup.
-
+2+1bits:
 ```
 bash scripts/long_test_truly.sh 0 \
 NousResearch/Meta-Llama-3.1-8B-Instruct test
 ```
-
 ---
+
+
+
+
 
 ### Latency and KV Cache Memory Evaluation
 
@@ -77,4 +75,4 @@ python test_latency_llama3_ours.py
 
 ---
 
-> ℹ️ **More detailed information will be released after the paper is accepted.**
+
