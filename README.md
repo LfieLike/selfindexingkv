@@ -1,5 +1,13 @@
 # selfindexingkv
 
+**Note:** This repository is not yet fully organized. Many hyperparameters (e.g.,  quantization bit‑width, KV‑cache configuration) are hard‑coded in source files or scripts and spread across multiple locations. We plan to centralize configuration and documentation in a future update.
+
+### Custom Attention Kernel
+
+Please note that the customized attention kernel we have implemented is at a toy level and is only guaranteed to be used for reproducing experimental results.
+
+
+
 ### Installation and Deployment
 
 We have implemented the corresponding **GPU CUDA kernels**.
