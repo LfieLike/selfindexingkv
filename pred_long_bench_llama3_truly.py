@@ -132,7 +132,6 @@ if __name__ == '__main__':
                 config=config,
                 cache_dir=training_args.cache_dir,
                 torch_dtype=dtype,
-                low_cpu_mem_usage=True,
                 device_map="auto",
             )
         else:
@@ -151,7 +150,6 @@ if __name__ == '__main__':
                 cache_dir=training_args.cache_dir,
                 torch_dtype=dtype,
                 low_cpu_mem_usage=True,
-                use_flash_attention_2=True,
                 device_map="auto",
             )
 

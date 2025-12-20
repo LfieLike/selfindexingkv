@@ -332,12 +332,11 @@ class true_selfindex_Cache(Cache):
             # print(lut_score-lut_score_2)
             # return 
             lut_score[...,-self.generated_token:]=torch.finfo(torch.float16).max
-            _, index = torch.topk(lut_score,k=min(self.select_token+self.generated_token,lut_score.shape[-1]),dim = -1,sorted=False)
+            _, index = torch.topk(lut_score,k=min(self.select_token,lut_score.shape[-1]),dim = -1,sorted=False)
             first_key = self.key_cache[layer_idx]
             first_value = self.value_cache[layer_idx]                                                                              
             q_res,tmp_out = custom_kernels_extension.mix_select_quant_flash_attention_decode(cnt_query.view(shape),first_key,first_value, 
                                                                                              self.key_value_quant[layer_idx],self.key_1bit_quant[layer_idx],self.key_value_quant_param[layer_idx],index)
-        # cnt_k,cnt_v = torch.cat([self.key_cache[layer_idx],cnt_k],dim=-2), torch.cat([self.value_cache[layer_idx],cnt_v],dim=-2)
         return None,None,q_res
     def return_given_alpha(alpha, sort_res, W_metric, tmp_metric, sum_before):
         thres_cumsum = sum_before * alpha 
