@@ -318,19 +318,12 @@ class true_selfindex_Cache(Cache):
             self.key_value_quant[layer_idx][:,:,self.compress_len-1:self.compress_len,:] = key_value_quant
             self.key_1bit_quant[layer_idx][:,:,self.compress_len-1:self.compress_len,:] = key_1bit_quant
             self.key_value_quant_param[layer_idx][:,:,self.compress_len-1:self.compress_len,:] = key_value_quant_param
-            # self.key_value_quant_mock[layer_idx] = torch.cat((self.key_value_quant_mock[layer_idx],key_value_quant),dim=-2)
-            # self.key_1bit_quant_mock[layer_idx] = torch.cat((self.key_1bit_quant_mock[layer_idx],key_1bit_quant),dim=-2)
-            # self.key_value_quant_param_mock[layer_idx] = torch.cat((self.key_value_quant_param_mock[layer_idx],key_value_quant_param),dim=-2)
-            # self.key_value_quant_param[layer_idx] = torch.cat((self.key_value_quant_param[layer_idx],key_value_quant_param),dim=-2)
             q_1 = query_states[:,:,-1:,:]
             shape = q_1.shape
             q_1 = q_1.view(shape[0],key_states.shape[1],-1,shape[2],shape[3]).mean(dim=2)
             table = torch.matmul(self.codebook[layer_idx],q_1.view(8,32,4,1).float())
             cnt_query = query_states.view(shape[0],key_states.shape[1],-1,shape[2],shape[3])*self.abs_key[layer_idx].view(shape[0],key_states.shape[1],-1,shape[2],shape[3])
             lut_score = vq_lutgemv(self.key_1bit_quant[layer_idx][:,:,:self.compress_len,:],table.view(-1,512))
-            # lut_score_2 = vq_lutgemv(self.key_1bit_quant_mock[layer_idx],table.view(-1,512))
-            # print(lut_score-lut_score_2)
-            # return 
             lut_score[...,-self.generated_token:]=torch.finfo(torch.float16).max
             _, index = torch.topk(lut_score,k=min(self.select_token,lut_score.shape[-1]),dim = -1,sorted=False)
             first_key = self.key_cache[layer_idx]

@@ -55,7 +55,7 @@ python setup.py install
 
 ### Reproduce Experiments
 
-After compiling all kernels, you can run the following command to reproduce our **LongBench** experimental results. 
+After compiling all kernels, you can run the following command to reproduce **LongBench** experimental results. 
 
 16+1bits:
 ```
