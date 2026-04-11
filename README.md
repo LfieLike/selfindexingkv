@@ -16,9 +16,6 @@ We have implemented the corresponding **GPU CUDA kernels**.
 
 Go into the project files and execute the following commands to install the required dependencies:
 
-```
-pip install -r requirements.txt
-```
 
 ---
 
