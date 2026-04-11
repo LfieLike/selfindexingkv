@@ -12,7 +12,7 @@ Please note that the customized attention kernel we have implemented is at a toy
 
 We have implemented the corresponding **GPU CUDA kernels**.
 
-> ⚠️ Please make sure the Python version in your current environment is **3.10.x**.
+> ⚠️ Please make sure the Python version in your current environment is **3.10.x** transformers==**4.46.0**
 
 Go into the project files and execute the following commands to install the required dependencies:
 
