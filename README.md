@@ -1,6 +1,7 @@
 # selfindexingkv
 
-**Note:** This repository is not yet fully organized. Many hyperparameters (e.g.,  quantization bit‑width, KV‑cache configuration) are hard‑coded in source files or scripts and spread across multiple locations. We plan to centralize configuration and documentation in a future update.
+**Note:** This repository is not yet fully organized. Many hyperparameters (e.g.,  quantization bit‑width, KV‑cache configuration) are hard‑coded in source files or scripts and spread across multiple locations. 
+We plan to centralize configuration and documentation in a future update.(Maybe)
 
 ### Custom Attention Kernel
 
